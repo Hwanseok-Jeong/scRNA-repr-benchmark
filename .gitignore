@@ -216,3 +216,23 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Docs
+*.pdf
+
+# Nextflow
+.nextflow/
+work/
+nf.out
+nxf-tmp.*
+
+# Data/results
+data/
+results/
+
+# VS Code
+.vscode/
+
+# Local installer script
+miniconda.sh
+

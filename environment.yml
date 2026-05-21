@@ -1,0 +1,20 @@
+name: tasic_benchmark
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - python=3.10
+  - pandas
+  - numpy
+  - scipy
+  - scikit-learn
+  - matplotlib
+  - seaborn
+  - scanpy
+  - anndata
+  - umap-learn
+  - pip
+  - pip:
+      - scvi-tools
+      - opentsne
