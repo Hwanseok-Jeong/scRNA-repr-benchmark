@@ -7,11 +7,12 @@
 
 nextflow.enable.dsl=2
 
-// Pipeline Parameters (can be overridden by configs/params.yml or CLI)
+// Pipeline Parameters (can be overridden by configs or CLI)
 params.data_dir = "${projectDir}/data"
 params.results_dir = "${projectDir}/results"
-params.methods = ['pca', 'ae', 'vae', 'scvi']
-params.n_hvg = 3000
+params.methods = params.methods ?: ['pca', 'scvi']
+params.n_hvg = params.n_hvg ?: (params.preprocessing?.n_hvg ?: 3000)
+params.latent_dim = params.latent_dim ?: (params.latent_models?.latent_dim ?: 50)
 
 // -------------------------------------------------------------
 // 1. Fetch & Parse Raw Tasic Data
@@ -48,7 +49,8 @@ process PREPROCESS {
     python "${projectDir}/scripts/preprocessing.py" \\
         --input "${raw_h5ad}" \\
         --output tasic_preprocessed.h5ad \\
-        --n_hvg ${params.n_hvg}
+        --n_hvg ${params.n_hvg} \
+        --marker_genes '${(params.preprocessing?.marker_genes ?: []).join(',')}'
     """
 }
 
@@ -71,7 +73,7 @@ process LATENT_MODEL {
         --input "${preprocessed_h5ad}" \\
         --output tasic_latent_${method}.h5ad \\
         --method ${method} \\
-        --dim 50
+        --dim ${params.latent_dim}
     """
 }
 
@@ -79,7 +81,7 @@ process LATENT_MODEL {
 // 4. 2D Embedding (t-SNE & UMAP)
 // -------------------------------------------------------------
 process EMBEDDING {
-    tag "Embed: ${method}"
+    tag "Embed: ${method} | Kobak variants"
     publishDir "${params.results_dir}/embeddings", mode: 'copy'
 
     input:
@@ -93,7 +95,10 @@ process EMBEDDING {
     python "${projectDir}/scripts/embedding.py" \\
         --input "${latent_h5ad}" \\
         --output tasic_embedded_${method}.h5ad \\
-        --method ${method}
+        --method ${method} \\
+        --tsne_variants '${groovy.json.JsonOutput.toJson(params.embed_tsne?.variants ?: [])}' \
+        --umap_variants '${groovy.json.JsonOutput.toJson(params.embed_umap?.variants ?: [])}' \
+        --kobak_outdir "${params.results_dir}/embeddings/kobak_npy"
     """
 }
 
@@ -101,7 +106,7 @@ process EMBEDDING {
 // 5. Evaluation (KNN, KNC, CPD)
 // -------------------------------------------------------------
 process EVALUATION {
-    tag "Eval: ${method}"
+    tag "Eval: ${method} embeddings"
     publishDir "${params.results_dir}/metrics", mode: 'copy'
 
     input:
@@ -123,7 +128,7 @@ process EVALUATION {
 // 6. Visualization (Scatter Plots + Scores)
 // -------------------------------------------------------------
 process VISUALIZATION {
-    tag "Plot: ${method}"
+    tag "Plot: ${method} embeddings"
     publishDir "${params.results_dir}/figures", mode: 'copy'
 
     input:
@@ -147,13 +152,31 @@ process VISUALIZATION {
 // -------------------------------------------------------------
 workflow {
     // 1. Download
-    raw_data = FETCH_DATA()
+    def raw_h5ad_file = file("${params.data_dir}/tasic_raw.h5ad")
+    if( raw_h5ad_file.exists() ) {
+        log.info "Found existing raw dataset at ${raw_h5ad_file}; skipping FETCH_DATA."
+        raw_data = Channel.value(raw_h5ad_file)
+    }
+    else {
+        raw_data = FETCH_DATA()
+    }
 
     // 2. Preprocess
     prepped_data = PREPROCESS(raw_data)
 
     // 3. Create a channel for methods to branch parallel execution
-    methods_ch = Channel.fromList(params.methods)
+    def methods_list
+    if( params.methods instanceof List ) {
+        methods_list = params.methods
+    }
+    else if( params.methods instanceof String ) {
+        methods_list = params.methods.split(',').collect { it.trim() }.findAll { it }
+    }
+    else {
+        methods_list = ['pca', 'scvi']
+    }
+
+    methods_ch = Channel.fromList(methods_list)
     
     // Combine each method with the prepped data: [ 'pca', data ], [ 'scvi', data ]...
     latent_input_ch = methods_ch.combine(prepped_data)

@@ -3,9 +3,16 @@ import numpy as np
 import argparse
 from scipy import sparse
 
+
+DEFAULT_MARKER_GENES = [
+    "Snap25", "Gad1", "Slc17a7", "Pvalb", "Sst", "Vip", "Aqp4",
+    "Mog", "Itgam", "Pdgfra", "Flt1", "Bgn", "Rorb", "Foxp2",
+]
+
+
 def geneSelection(data, threshold=32, atleast=10,
                   yoffset=0.02, xoffset=5, decay=1.5, n=None,
-                  plot=False, verbose=1):
+                  plot=False, verbose=1, return_scores=False):
     """
     Kobak/Berens gene selection function (ported from rnaseqTools.py).
     Selects genes based on mean log2 nonzero expression and zero-rate curve.
@@ -52,7 +59,24 @@ def geneSelection(data, threshold=32, atleast=10,
         selected = np.zeros_like(zeroRate).astype(bool)
         selected[nonan] = zeroRate[nonan] > np.exp(-decay * (meanExpr[nonan] - xoffset)) + yoffset
 
+    # Margin from the selection curve; lower values are weaker selected genes.
+    scores = np.full_like(zeroRate, fill_value=-np.inf, dtype=float)
+    curve = np.exp(-decay * (meanExpr[nonan] - xoffset)) + yoffset
+    scores[nonan] = zeroRate[nonan] - curve
+
+    if return_scores:
+        return selected, scores
+
     return selected
+
+
+def parse_marker_genes(raw_value):
+    if raw_value is None:
+        return []
+    stripped = raw_value.strip()
+    if not stripped:
+        return []
+    return [item.strip() for item in stripped.split(",") if item.strip()]
 
 def main():
     """
@@ -66,15 +90,57 @@ def main():
     parser.add_argument("--output", required=True, help="Path to save processed .h5ad file")
     parser.add_argument("--n_hvg", type=int, default=3000, help="Number of highly variable genes to select")
     parser.add_argument("--target_sum", type=float, default=1e6, help="Target sum for normalization (e.g. 1e6 for CPM)")
+    parser.add_argument("--marker_genes", type=str, default=",".join(DEFAULT_MARKER_GENES), help="Comma-separated marker gene symbols")
+    parser.add_argument("--no_force_include_markers", action="store_true", help="Do not force marker genes into selected genes")
     args = parser.parse_args()
 
     print(f"[*] Loading raw data from {args.input}...")
     adata = sc.read_h5ad(args.input)
 
+    print('Number of cells:', adata.n_obs)
+    if 'area' in adata.obs:
+        print('Number of cells from ALM:', int(np.sum(adata.obs['area'] == 'ALM')))
+        print('Number of cells from VISp:', int(np.sum(adata.obs['area'] == 'VISp')))
+    if 'cluster_id' in adata.obs:
+        print('Number of clusters:', np.unique(adata.obs['cluster_id']).size)
+    print('Number of genes:', adata.n_vars)
+    print('Fraction of zeros in the data matrix: {:.2f}'.format(
+        adata.X.size / np.prod(adata.X.shape)
+    ))
+
     # 1. Gene selection (Kobak/Berens heuristic)
     print(f"[*] Selecting {args.n_hvg} genes with Kobak/Berens heuristic...")
-    selected = geneSelection(adata.X, n=args.n_hvg, threshold=32, plot=False, verbose=1)
+    selected, selection_scores = geneSelection(adata.X, n=args.n_hvg, threshold=32, plot=False, verbose=1, return_scores=True)
+
+    marker_genes = parse_marker_genes(args.marker_genes)
+    if marker_genes:
+        var_names = adata.var_names.astype(str).to_numpy()
+        marker_set = set(marker_genes)
+        present_markers = [gene for gene in marker_genes if gene in set(var_names)]
+        missing_markers = [gene for gene in marker_genes if gene not in set(var_names)]
+        print(f"[*] Marker genes requested: {len(marker_genes)} | present: {len(present_markers)} | missing: {len(missing_markers)}")
+        if missing_markers:
+            print(f"[!] Missing marker genes: {', '.join(missing_markers)}")
+
+        if present_markers and not args.no_force_include_markers:
+            marker_mask = np.isin(var_names, present_markers)
+            to_add = marker_mask & ~selected
+            add_count = int(np.sum(to_add))
+            if add_count > 0:
+                drop_candidates = np.where(selected & ~marker_mask)[0]
+                if drop_candidates.size >= add_count:
+                    drop_order = drop_candidates[np.argsort(selection_scores[drop_candidates])]
+                    selected[drop_order[:add_count]] = False
+                    selected[to_add] = True
+                    print(f"[*] Forced inclusion of {add_count} marker genes (replaced weakest non-marker selections).")
+                else:
+                    selected[to_add] = True
+                    print(f"[!] Included {add_count} additional marker genes; selected genes exceed n_hvg due to insufficient non-marker candidates.")
+
     adata = adata[:, selected].copy()
+
+    print('Selected genes:', adata.n_vars)
+    print('Selected matrix shape:', adata.X.shape)
 
     # 2. Preserve raw counts for deep generative models (e.g., scVI)
     print("[*] Preserving raw counts in adata.layers['counts'] for downstream deep learning models...")

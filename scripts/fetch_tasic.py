@@ -120,6 +120,14 @@ def main():
     adata.obs.index = adata.obs['cell_id'].values
     adata.var_names = genes
 
+    print('Number of cells:', adata.n_obs)
+    print('Number of cells from ALM:', int(np.sum(adata.obs['area'] == 'ALM')))
+    print('Number of cells from VISp:', int(np.sum(adata.obs['area'] == 'VISp')))
+    print('Number of genes:', adata.n_vars)
+    print('Fraction of zeros in the data matrix: {:.2f}'.format(
+        adata.X.size / np.prod(adata.X.shape)
+    ))
+
     # 6. Save Base Raw Object
     print(f"[*] Saving Tasic raw dataset to {args.output}...")
     adata.write(args.output)

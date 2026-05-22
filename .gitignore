@@ -225,10 +225,16 @@ __marimo__/
 work/
 nf.out
 nxf-tmp.*
+.nextflow.log*
+nextflow*.log
 
 # Data/results
 data/
 results/
+
+# Local reference/vendor copies
+FIt-SNE/
+REFERENCE-rna-seq-tsne/
 
 # VS Code
 .vscode/
