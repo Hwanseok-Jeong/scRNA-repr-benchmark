@@ -103,7 +103,8 @@ process LATENT_MODEL {
         "--gene_likelihood ${params.latent_models?.scvi?.gene_likelihood ?: 'zinb'}",
         "--layer ${params.latent_models?.scvi?.layer ?: 'counts'}",
         params.latent_models?.scvi?.dispersion ? "--dispersion ${params.latent_models.scvi.dispersion}" : ""
-    ].findAll { it }.join(" \\\n        ") + " \\\n        " : ""
+    ].findAll { it }.join(" \\\n+        ") : ""
+    def scvi_args_block = scvi_args ? "${scvi_args} \\\n+        " : ""
 
     """
     ${params.python_cmd} "${projectDir}/scripts/latent_model.py" \
@@ -111,7 +112,7 @@ process LATENT_MODEL {
         --output tasic_latent_${method}_n${dim}.h5ad \
         --method ${method} \
         --dim ${dim} \
-        ${scvi_args}--kobak_outdir "${params.results_dir}/embeddings/kobak_npy"
+        ${scvi_args_block}--kobak_outdir "${params.results_dir}/embeddings/kobak_npy"
     """
 }
 
@@ -133,6 +134,7 @@ process EMBEDDING {
         --input "${latent_h5ad}" \
         --output tasic_embedded_${method}_n${dim}.h5ad \
         --method ${method} \
+        --dim ${dim} \
         --tsne_variants '${groovy.json.JsonOutput.toJson(params.embed_tsne?.variants ?: [])}' \
         --umap_variants '${groovy.json.JsonOutput.toJson(params.embed_umap?.variants ?: [])}' \
         --kobak_outdir "${params.results_dir}/embeddings/kobak_npy"

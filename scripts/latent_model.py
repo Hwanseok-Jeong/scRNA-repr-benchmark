@@ -51,11 +51,12 @@ def main():
         sign_flip = np.sum(pca.components_, axis=1) < 0
         X_pca[:, sign_flip] *= -1
         adata.obsm["X_pca"] = X_pca.copy()
-        adata.obsm[f"X_latent_{args.method}"] = X_pca.copy()
+        adata.obsm[f"X_latent_{args.method}_n{args.dim}"] = X_pca.copy()
         # Optionally save Kobak-style PCA numpy array for reference comparison
         if args.kobak_outdir:
-            os.makedirs(args.kobak_outdir, exist_ok=True)
-            outpath = os.path.join(args.kobak_outdir, "tasic-pca50.npy")
+            method_outdir = os.path.join(args.kobak_outdir, "pca")
+            os.makedirs(method_outdir, exist_ok=True)
+            outpath = os.path.join(method_outdir, f"tasic-pca{args.dim}.npy")
             np.save(outpath, X_pca)
 
     # --- scVI ---
@@ -88,7 +89,7 @@ def main():
                 "lr": args.learning_rate,
             },
         )
-        adata.obsm[f"X_latent_{args.method}"] = model.get_latent_representation()
+        adata.obsm[f"X_latent_{args.method}_n{args.dim}"] = model.get_latent_representation()
 
     # Save
     print(f"[*] Saving AnnData with {args.method} latent space to {args.output}...")

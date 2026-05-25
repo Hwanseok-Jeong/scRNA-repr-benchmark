@@ -49,6 +49,7 @@ def main():
     parser.add_argument("--input", required=True, help="Path to .h5ad with latent space")
     parser.add_argument("--output", required=True, help="Path to save 2D embedded .h5ad")
     parser.add_argument("--method", choices=["pca", "scvi"], required=True, help="Which latent space to embed")
+    parser.add_argument("--dim", type=int, default=None, help="Latent dimensionality (used for dim-specific keys)")
     parser.add_argument("--tsne_variants", default="[]", help="JSON list of t-SNE variant configs")
     parser.add_argument("--umap_variants", default="[]", help="JSON list of UMAP variant configs")
     parser.add_argument("--kobak_outdir", default=None, help="Directory to save Kobak-style .npy outputs")
@@ -56,10 +57,19 @@ def main():
     
     print(f"[*] Loading AnnData from {args.input}...")
     adata = sc.read_h5ad(args.input)
-    latent_key = f"X_latent_{args.method}"
-    
+    if args.dim is not None:
+        latent_key = f"X_latent_{args.method}_n{args.dim}"
+        fallback_key = f"X_latent_{args.method}"
+    else:
+        latent_key = f"X_latent_{args.method}"
+        fallback_key = None
+
     if latent_key not in adata.obsm:
-        raise ValueError(f"[!] {latent_key} not found in AnnData object. Run latent_model.py first.")
+        if fallback_key and fallback_key in adata.obsm:
+            print(f"[!] {latent_key} not found; falling back to {fallback_key}.")
+            latent_key = fallback_key
+        else:
+            raise ValueError(f"[!] {latent_key} not found in AnnData object. Run latent_model.py first.")
         
     X_latent = np.asarray(adata.obsm[latent_key])
     n_cells = X_latent.shape[0]
@@ -137,10 +147,13 @@ def main():
         adata.obsm[f"X_umap_{variant_name}"] = X_umap
 
     if args.kobak_outdir:
-        method_outdir = os.path.join(args.kobak_outdir, args.method)
-        os.makedirs(method_outdir, exist_ok=True)
-        
         dim = X_latent.shape[1]
+        if args.method == "pca":
+            method_outdir = os.path.join(args.kobak_outdir, "pca")
+        else:
+            method_outdir = os.path.join(args.kobak_outdir, f"{args.method}_n{dim}")
+        os.makedirs(method_outdir, exist_ok=True)
+
         if args.method == "pca":
             np.save(os.path.join(method_outdir, f"tasic-pca{dim}.npy"), X_latent)
         else:
