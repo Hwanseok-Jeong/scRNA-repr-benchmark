@@ -4,12 +4,6 @@ import argparse
 from scipy import sparse
 
 
-DEFAULT_MARKER_GENES = [
-    "Snap25", "Gad1", "Slc17a7", "Pvalb", "Sst", "Vip", "Aqp4",
-    "Mog", "Itgam", "Pdgfra", "Flt1", "Bgn", "Rorb", "Foxp2",
-]
-
-
 def geneSelection(data, threshold=32, atleast=10,
                   yoffset=0.02, xoffset=5, decay=1.5, n=None,
                   plot=False, verbose=1, return_scores=False):
@@ -78,6 +72,23 @@ def parse_marker_genes(raw_value):
         return []
     return [item.strip() for item in stripped.split(",") if item.strip()]
 
+
+def ensure_prefix_columns(adata):
+    """Populate sample_prefix1/sample_prefix2 from sample_name when available.
+
+    sample_prefix1 extracts just the first part before the first underscore.
+    sample_prefix2 removes the trailing well/location token by splitting on the
+    last underscore. This is the batch key used by scVI in this project.
+    """
+    if "sample_name" not in adata.obs:
+        return
+
+    sample_names = adata.obs["sample_name"].astype(str)
+    if "sample_prefix1" not in adata.obs:
+        adata.obs["sample_prefix1"] = sample_names.str.split("_").str[0]
+    if "sample_prefix2" not in adata.obs:
+        adata.obs["sample_prefix2"] = sample_names.str.split("_").str[:2].str.join("_")
+
 def main():
     """
     Kobak/Berens-style preprocessing for Tasic 2018.
@@ -90,12 +101,14 @@ def main():
     parser.add_argument("--output", required=True, help="Path to save processed .h5ad file")
     parser.add_argument("--n_hvg", type=int, default=3000, help="Number of highly variable genes to select")
     parser.add_argument("--target_sum", type=float, default=1e6, help="Target sum for normalization (e.g. 1e6 for CPM)")
-    parser.add_argument("--marker_genes", type=str, default=",".join(DEFAULT_MARKER_GENES), help="Comma-separated marker gene symbols")
+    parser.add_argument("--marker_genes", type=str, default="", help="Comma-separated marker gene symbols")
     parser.add_argument("--no_force_include_markers", action="store_true", help="Do not force marker genes into selected genes")
     args = parser.parse_args()
 
     print(f"[*] Loading raw data from {args.input}...")
     adata = sc.read_h5ad(args.input)
+
+    ensure_prefix_columns(adata)
 
     print('Number of cells:', adata.n_obs)
     if 'area' in adata.obs:
@@ -107,6 +120,11 @@ def main():
     print('Fraction of zeros in the data matrix: {:.2f}'.format(
         adata.X.size / np.prod(adata.X.shape)
     ))
+
+    # Keep the full-cell library sizes from the raw matrix.
+    # The Kobak notebook normalizes selected genes by these original totals,
+    # not by the post-selection library sizes.
+    original_library_sizes = np.asarray(adata.X.sum(axis=1)).ravel()
 
     # 1. Gene selection (Kobak/Berens heuristic)
     print(f"[*] Selecting {args.n_hvg} genes with Kobak/Berens heuristic...")
@@ -148,7 +166,10 @@ def main():
 
     # 3. Normalization (Library size scaling)
     print(f"[*] Normalizing library size to target_sum={args.target_sum}...")
-    sc.pp.normalize_total(adata, target_sum=args.target_sum)
+    if sparse.issparse(adata.X):
+        adata.X = adata.X.multiply((args.target_sum / original_library_sizes)[:, None]).tocsr()
+    else:
+        adata.X = adata.X / original_library_sizes[:, None] * args.target_sum
 
     # 4. Log2 Transformation (exactly log2(CPM + 1))
     print("[*] Applying log2(X + 1) transformation...")

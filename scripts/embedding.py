@@ -94,7 +94,8 @@ def main():
         if init_mode == "pca":
             initialization = build_pca_init(X_latent)
         elif init_mode == "random":
-            initialization = None
+            # FIt-SNE defaults to PCA init; pass explicit random to avoid fallback.
+            initialization = "random"
         else:
             initialization = init_mode
 
@@ -127,7 +128,7 @@ def main():
         variant_name = variant["name"]
         n_neighbors = variant.get("n_neighbors", 30)
         min_dist = variant.get("min_dist", 0.3)
-        init_mode = variant.get("init", "pca")
+        init_mode = variant.get("init", None)
 
         print(f"\n[*] Running UMAP variant '{variant_name}' on {latent_key}...")
         print(f"    -> Neighbors: {n_neighbors}, Min Dist: {min_dist}, Init: {init_mode}")
@@ -135,8 +136,8 @@ def main():
         umap_obj = umap.UMAP(
             n_neighbors=n_neighbors,
             min_dist=min_dist,
-            init=init_mode,
             random_state=1,
+            **({"init": init_mode} if init_mode is not None else {}),
         )
         X_umap = umap_obj.fit_transform(X_latent)
         adata.obsm[f"X_umap_{variant_name}"] = X_umap

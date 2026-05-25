@@ -84,6 +84,7 @@ To avoid subjective visual bias, embeddings are scored using:
 - Implemented PCA-initialized t-SNE benchmark variants in the pipeline (config-driven t-SNE/UMAP variants, per-variant evaluation, and visualization from saved outputs).
 - Current status: PCA50 output is numerically close to the reference but not yet perfectly identical.
 - Current status: scVI baseline is not fully implemented in this benchmark run.
+- scVI must start from the raw downloaded count matrix, not from the CPM/log-transformed PCA preprocessing path; the scVI branch should bypass normalization and log transform entirely.
 
 ---
 *Developed for application to the Kobak Lab PhD Program and reproducible research in single-cell benchmarking.*

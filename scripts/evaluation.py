@@ -44,7 +44,7 @@ def embedding_quality(X, Z, classes, knn=10, knn_classes=10, subsetsize=1000):
     subset = np.random.choice(X.shape[0], size=min(subsetsize, X.shape[0]), replace=False)
     d1 = pdist(X[subset, :])
     d2 = pdist(Z[subset, :])
-    rho = spearmanr(d1, d2).correlation
+    rho = spearmanr(d1[:, None], d2[:, None]).correlation
 
     return (mnn, mnn_global, rho)
 
@@ -53,6 +53,7 @@ def main():
     parser.add_argument("--input", required=True, help="Path to .h5ad with 2D embeddings")
     parser.add_argument("--method", choices=["pca", "ae", "vae", "scvi"], required=True, help="Latent model evaluated")
     parser.add_argument("--outdir", default="results/metrics/", help="Directory to save metric JSONs")
+    parser.add_argument("--suffix", default="", help="Optional suffix to append to output filenames")
     args = parser.parse_args()
     os.makedirs(args.outdir, exist_ok=True)
 
@@ -67,7 +68,17 @@ def main():
     if labels is None:
         print("[!] No 'cluster_id' or 'cluster_label' found in adata.obs. KNC will be skipped.")
 
-    results = {"tsne": {}, "umap": {}}
+    results = {
+        "__meta__": {
+            "method": args.method,
+            "variant_orders": {
+                "tsne": list(adata.uns.get("tsne_variant_order", [])),
+                "umap": list(adata.uns.get("umap_variant_order", [])),
+            },
+        },
+        "tsne": {},
+        "umap": {},
+    }
     for emb_name in ["tsne", "umap"]:
         variant_order_key = f"{emb_name}_variant_order"
         if variant_order_key in adata.uns:
@@ -93,7 +104,7 @@ def main():
                 "CPD": round(cpd, 3) if cpd != "N/A" else "N/A"
             }
 
-    out_file = os.path.join(args.outdir, f"metrics_{args.method}.json")
+    out_file = os.path.join(args.outdir, f"metrics_{args.method}{args.suffix}.json")
     with open(out_file, 'w') as f:
         json.dump(results, f, indent=4)
         
