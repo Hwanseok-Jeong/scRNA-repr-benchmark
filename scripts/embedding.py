@@ -36,12 +36,6 @@ def resolve_value(value, n_cells):
     return value
 
 
-def build_pca_init(X_latent):
-    std0 = np.std(X_latent[:, 0])
-    if not np.isfinite(std0) or std0 == 0:
-        return "pca"
-    return X_latent[:, :2] / std0 * 0.0001
-
 def main():
     """
     Downstream 2D Embedding script.
@@ -92,7 +86,7 @@ def main():
         seed = variant.get("seed", 42)
 
         if init_mode == "pca":
-            initialization = build_pca_init(X_latent)
+            initialization = "pca"
         elif init_mode == "random":
             # FIt-SNE defaults to PCA init; pass explicit random to avoid fallback.
             initialization = "random"
@@ -145,10 +139,12 @@ def main():
     if args.kobak_outdir:
         method_outdir = os.path.join(args.kobak_outdir, args.method)
         os.makedirs(method_outdir, exist_ok=True)
+        
+        dim = X_latent.shape[1]
         if args.method == "pca":
-            np.save(os.path.join(method_outdir, "tasic-pca50.npy"), X_latent)
+            np.save(os.path.join(method_outdir, f"tasic-pca{dim}.npy"), X_latent)
         else:
-            np.save(os.path.join(method_outdir, f"tasic-latent50-{args.method}.npy"), X_latent)
+            np.save(os.path.join(method_outdir, f"tasic-latent{dim}-{args.method}.npy"), X_latent)
 
         if "cluster_color" in adata.obs:
             np.save(os.path.join(method_outdir, "tasic-colors.npy"), adata.obs["cluster_color"].to_numpy())
