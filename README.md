@@ -109,8 +109,7 @@ scRNA-repr-benchmark/
 ├── environment.yml             # conda environment spec (tasic_benchmark)
 ├── README.md                   # project overview and report
 │
-├── data/                       # local input data (not committed to git due to 	
-│	│							  file size)								
+├── data/                       # local input data (not committed to git due to large file size)								
 │   └── *.h5ad                  # Tasic raw/preprocessed AnnData files
 │
 ├── scripts/                    # analysis code
