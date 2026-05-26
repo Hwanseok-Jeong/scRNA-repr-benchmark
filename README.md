@@ -1,35 +1,69 @@
 # scRNA-seq Representation Learning Benchmark: A Comparative Study of Linear and Non-Linear Latent Spaces
 
+## Executive Summary
+I compared three ways of turning scRNA-seq data into a 2D visualization:
+- PCA + Kobak-style t-SNE / UMAP as the linear baseline.
+- scVI latents fed into the same Kobak-style embedding recipe.
+- scVI latents visualized with Scanpy's graph-based UMAP workflow.
+
+The main takeaway is simple: PCA-style initialization works well for PCA latents, but it is a weaker match for scVI latents. For scVI, the graph-based UMAP workflow is the more natural fit.
+
+## Key Comparison Figures
+Use these three PDFs as the first visual comparison:
+- [PCA baseline](results/figures/pca/n50/tasic-variants.pdf)
+- [scVI Kobak-style result](results/figures/scvi/n50/tasic-variants.pdf)
+- [scVI Scanpy workflow result](results/scvi_scanpy_workflow/figures/umap_n30_md05_scanpy_4panels.pdf)
+
+If I were polishing this README further, I would keep these three figure links near the top and move the longer motivation / implementation text below them.
+
+## Figure 1 — Visual comparison (click thumbnails for PDFs)
+[![PCA baseline](results/figures/pca/n50/tasic-variants.png)](results/figures/pca/n50/tasic-variants.pdf)  
+*PCA baseline — Kobak-style variants (50 PCs).*  
+
+[![scVI Kobak-style](results/figures/scvi/n50/tasic-variants.png)](results/figures/scvi/n50/tasic-variants.pdf)  
+*scVI latents + Kobak-style embedding (array-based t-SNE/UMAP).*  
+
+[![scVI Scanpy workflow](results/scvi_scanpy_workflow/figures/umap_n30_md05_scanpy_4panels.png)](results/scvi_scanpy_workflow/figures/umap_n30_md05_scanpy_4panels.pdf)  
+*scVI latents visualized with Scanpy graph-based UMAP (n=30, min_dist=0.5).*  
+
 ## 1. Introduction & Motivation
-High-dimensional single-cell RNA-sequencing (scRNA-seq) data is routinely visualized using nonlinear dimensionality reduction techniques like t-SNE and UMAP. As elegantly demonstrated in *“The art of using t-SNE for single-cell transcriptomics” (Kobak & Berens, 2019)*, combining PCA initialization with appropriate parameter tuning (e.g., perplexity of $N/100$) successfully preserves both local and global biological structures. 
+High-dimensional single-cell RNA-sequencing (scRNA-seq) data is usually explored with nonlinear dimensionality reduction methods such as t-SNE and UMAP. In *The art of using t-SNE for single-cell transcriptomics* [Kobak & Berens, 2019](https://www.nature.com/articles/s41467-019-13055-y), PCA initialization and careful parameter choice are enough to recover both local cluster structure and a coarse global layout.
 
-*Personal Motivation:* This project was heavily inspired by Prof. Dmitry Kobak's Machine Learning introductory lectures at the University of Tübingen and his remarkable 2019 Nature Communications paper regarding representation manifolds. Driven by a deep interest in representation learning, particularly how Autoencoders capture complex topologies, and recognizing that dimensionality reduction is arguably the most critical step in bioinformatics, this pipeline was developed as a scalable portfolio piece. To accommodate local desktop constraints without a dedicated GPU during the prototyping phase, the moderately sized ~24,000 cell Tasic dataset was chosen.
+I started this project after reading Kobak's lectures and paper, and I wanted a benchmark that is small enough to run on a local machine but still large enough to expose the failure modes of different embeddings. The Tasic dataset was a practical choice for that reason: it is big enough to be interesting, but still manageable without a dedicated GPU during prototyping.
 
-Traditionally, t-SNE is computed on the first 50 Principal Components (PCs) of the log-normalized expression matrix. Here we focus on a count-aware deep generative baseline (scVI) alongside the linear PCA baseline to test whether a ZINB-based latent space preserves global topology better than PCA.
-We intentionally exclude AE/VAE in this benchmark because the simple Gaussian reconstruction losses used in our AE/VAE do not model scRNA-seq count noise (zero inflation, overdispersion), and tend to be mis-specified for raw count data compared to scVI's ZINB likelihood.
+The main question in this repository is simple: if I replace the usual linear PCA latent space with a count-aware deep generative latent space such as scVI, do the downstream embeddings become better, or do they break because the embedding algorithm makes the wrong assumptions?
 
-This repository serves as a systematic benchmark pipeline to evaluate how different latent representations (PCA vs. AE vs. VAE vs. scVI) influence downstream non-linear embeddings (t-SNE, UMAP) and topological evaluations. *Developed with the assistance of GitHub Copilot, it builds directly upon the Kobak lab reference implementation (https://github.com/berenslab/rna-seq-tsne).*
-We used this t-SNE implementation: https://github.com/KlugerLab/FIt-SNE.
+I deliberately leave AE/VAE out of the main benchmark. In a raw-count setting, a plain Gaussian reconstruction loss is not a great fit for scRNA-seq noise, so the comparison becomes less clean than PCA vs scVI. scVI is the more appropriate count-aware baseline because it models overdispersion and zero inflation directly.
+
+This repository builds on the Kobak lab reference implementation [rna-seq-tsne](https://github.com/berenslab/rna-seq-tsne) and uses [FIt-SNE](https://github.com/KlugerLab/FIt-SNE) for the t-SNE runs.
+
+## 2. Quick Start
+1. Create the environment from the provided spec: `conda env create -f environment.yml`
+2. Activate it: `conda activate tasic_benchmark`
+3. Check that the bundled t-SNE binary exists at `FIt-SNE/bin/fast_tsne`. If it is missing, rebuild the upstream FIt-SNE project in that folder.
+4. Run the pipeline with Nextflow: `nextflow run main.nf -resume`
+
+I keep the environment definition in `environment.yml` so the repo can be reproduced on another machine with a single conda command. The file already includes the main Python stack (`scanpy`, `anndata`, `scvi-tools`-compatible dependencies, `umap-learn`, `scikit-learn`) plus `nextflow`.
 
 ## 2. Aims and Objectives
-1. **Phase 1: Baseline Reproduction:** First, ensure that PCA (50 dimensions) followed by t-SNE with Kobak's exact settings (PCA initialization, Perplexity $N/100$) perfectly reproduces the topological structures (e.g., VISp vs ALM cortical segregation) showcased in the 2019 reference paper.
-2. **Phase 2: Core Benchmark (DL Latent Models):** We substitute the linear 50D PCA latent space with a scVI latent representation and compare downstream t-SNE/UMAP layouts and topology metrics against PCA.
-3. **Generalization & Scalability:** The pipeline is intentionally modular. `preprocessing.py` can parse and standardize raw counts from diverse platforms (like 10x Genomics UMI drops) alongside the Smart-seq2 standard used here, facilitating expansive future benchmarking.
-4. **Dual-Track Evaluation:** Evaluate whether performance optimally peaks at the standard fixed 50 dimensions constraint (Track 1) or individual dimensionalities intrinsically optimal to each model's reconstruction loss (Track 2).
-3. **Robust Evaluation:** Extensively quantify topology preservation using K-Nearest Neighbor (KNN) retention, K-Nearest Class (KNC) purity, and Correlative Preservation of Distances (CPD).
-4. **Scalability & Automation:** Containerize the entire pipeline via Docker and orchestrate it with Nextflow to allow for scalable and reproducible execution (eventually transferring from local setups to HPC).
+1. **Baseline reproduction:** I first check that PCA with 50 dimensions, PCA initialization, and Kobak-style FIt-SNE settings reproduces the expected cortical separation patterns from the reference paper.
+2. **Core benchmark:** I then replace the linear PCA latent with scVI and compare the downstream t-SNE/UMAP outputs against PCA.
+3. **Generalization:** I keep the preprocessing code modular so it can be reused for raw-count datasets beyond Smart-seq2, including UMI-based data.
+4. **Dual track comparison:** I test both a fixed 50-dimensional track and a model-specific latent track.
+5. **Quantitative evaluation:** I score embeddings with KNN retention, KNC purity, CPD, and, in the next pass, Trustworthiness and Continuity.
+6. **Automation:** I orchestrate the whole workflow with Nextflow so the benchmark can be reproduced locally and later moved to HPC without rewriting the core scripts.
 
 ## 3. Biological Context (Tasic et al. 2018)
-To evaluate structure preservation, we utilize the ~24,000 mouse cortical cells dataset sequenced with Smart-seq2 (*Tasic et al. 2018*), sampled from the visual (VISp) and anterior lateral motor (ALM) cortices.
+To evaluate structure preservation, I use the ~24,000 mouse cortical cells dataset sequenced with Smart-seq2 in [Tasic et al. 2018](https://www.cell.com/cell/fulltext/S0092-8674(18)30751-4), sampled from the visual (VISp) and anterior lateral motor (ALM) cortices.
 
-The dataset provides a ground-truth biological topology:
+The dataset gives me a useful biological reference:
 - **GABAergic (Inhibitory) neurons** are highly conserved transcriptomically across both VISp and ALM regions (expected to intermingle in embedding space).
 - **Glutamatergic (Excitatory) neurons** possess distinct, region-specific signatures (expected to segregate cleanly into VISp and ALM branches).
-The benchmark explicitly tests which latent representation most faithfully captures this known biological manifold.
+The benchmark asks which latent representation most faithfully captures this known biological manifold.
 
 ## 4. Methodology
 ### 4.1 Data Preprocessing
-Mimicking the Kobak & Berens repo:
+Using the Kobak & Berens reference workflow:
 - Outlier filtering based on provided metadata (masking 'Good cells').
 - Library size normalization (CPM).
 - Log-transformation: $\log_2(CPM + 1)$.
@@ -39,24 +73,24 @@ Mimicking the Kobak & Berens repo:
 Implementation notes:
 - `scripts/preprocessing.py` ports the Kobak gene-selection heuristic from `rnaseqTools.geneSelection(...)` with `threshold=32`, `n=3000`, `decay=1.5`, `yoffset=0.02`, and the same binary search over `xoffset`.
 - The `Chosen offset: 6.56` style line is not a fixed parameter; it is the final `xoffset` found by that binary search when the requested number of genes is reached.
-- The CPM + log transform is implemented as `normalize_total(target_sum=1e6)` followed by `log1p(base=2)`, which matches the notebook's `np.log2(CPM + 1)`.
-- `scripts/latent_model.py` now uses `sklearn.decomposition.PCA(n_components=50, svd_solver='full')` and the same PC sign flip convention as the Kobak notebook.
+- The CPM plus log transform is implemented as `normalize_total(target_sum=1e6)` followed by `log1p(base=2)`, which matches the notebook's `np.log2(CPM + 1)`.
+- `scripts/latent_model.py` uses `sklearn.decomposition.PCA(n_components=50, svd_solver='full')` and the same PC sign-flip convention as the Kobak notebook.
 
 ### 4.2 Latent Representations
 - **PCA:** Linear baseline (reference point).
-- **scVI:** `scvi-tools` baseline implementation (ZINB/NB likelihood) to account for technical variance inherent to scRNA-seq counts.
+- **scVI:** [scvi-tools](https://scvi-tools.org/) baseline implementation with a count-aware likelihood to account for technical variance inherent to scRNA-seq counts.
 
 #### AE vs VAE (concise note)
 Autoencoders (AE) and Variational Autoencoders (VAE) are often proposed as flexible nonlinear latent models, but care is required for scRNA-seq counts:
 - **AE:** deterministic encoder/decoder trained with a pointwise reconstruction loss (commonly MSE). This produces a single-point embedding per cell but assumes Gaussian errors — a poor fit for overdispersed, zero-inflated count data.
 - **VAE:** probabilistic encoder that learns an approximate posterior (mean + log-variance) and optimizes the ELBO (reconstruction + KL). VAEs model uncertainty, but when the reconstruction likelihood is Gaussian they still mis-specify counts.
-- **To make AE/VAE appropriate for scRNA-seq:** replace Gaussian reconstruction with a count-aware likelihood (e.g., Negative Binomial or ZINB), account for library size / size-factors, and include overdispersion modeling — essentially what scVI implements. Without these changes, AE/VAE reconstructions and learned latents can be biased or misleading for raw counts.
+- **To make AE/VAE appropriate for scRNA-seq:** replace Gaussian reconstruction with a count-aware likelihood (for example Negative Binomial or ZINB), account for library size or size-factors, and include overdispersion modeling. That is the part scVI handles for me. Without these changes, AE/VAE reconstructions and learned latents can be biased or misleading for raw counts.
 
 
 ### 4.3 Dimension Reduction (Embeddings)
 - **t-SNE implementation:** `scripts/embedding.py` uses the Kobak FIt-SNE wrapper interface and the same recommended settings: PCA-style initialization, learning rate $N/12$, and multi-scale perplexity `[30, N/100]`.
-- **UMAP implementation:** The reference notebook `REFERENCE-rna-seq-tsne/umap-comparison.ipynb` shows two Tasic UMAP settings. We select the second one as the default because it improves KNC and CPD on the Tasic benchmark: `random_state=1`, `n_neighbors=30`, `min_dist=0.5`.
-- **Rationale:** The first UMAP setting is kept as a historical reference, but the second setting better preserves cluster-level and global structure for this dataset, so it is the one used in the pipeline.
+- **UMAP implementation:** The reference notebook `REFERENCE-rna-seq-tsne/umap-comparison.ipynb` shows two Tasic UMAP settings. I use the second one as the default because it improves KNC and CPD on this benchmark: `random_state=1`, `n_neighbors=30`, `min_dist=0.5`.
+- **Rationale:** The first UMAP setting stays as a historical reference, but the second setting gives me the cleaner comparison for this dataset.
 
 Kobak-derived pieces that are intentionally preserved in this pipeline:
 - Gene selection heuristic and its binary-search thresholding behavior.
@@ -66,64 +100,58 @@ Kobak-derived pieces that are intentionally preserved in this pipeline:
 - UMAP benchmark settings from the supplementary notebook, with the second setting chosen for the default pipeline.
 
 ### 4.4 Quantitative Evaluation
-To avoid subjective visual bias, embeddings are scored using:
-- **KNN Preservation:** Overlap of exact neighborhoods across original (high-dimensional) vs. latent vs. embedded spaces.
-- **KNC Purity (Silhouette approximation):** Preservation of cluster label coherence.
-- **Correlative Preservation of Distances (CPD):** Spearman correlation between pairwise distances in the original gene space and the reduced space.
+I keep the metric definitions before the results so the comparison table reads cleanly.
+
+- **KNN Preservation:** overlap of exact neighborhoods across the original, latent, and embedded spaces.
+- **KNC Purity:** preservation of cluster label coherence.
+- **CPD:** Spearman correlation between pairwise distances in the original gene space and the reduced space.
+- **Trustworthiness:** how often neighbors in the 2D embedding are also neighbors in the original space.
+- **Continuity:** how often original-space neighbors remain neighbors after projection.
+
+Trustworthiness and Continuity are the next metrics I would add for a fairer comparison between PCA-style and graph-based embeddings.
 
 ## 5. Results & Discussion
 
-### 5.1 Research Aim & Initial Hypothesis
-**Aim:** To evaluate whether substituting a traditional linear baseline (PCA) with a more purified, count-aware deep generative latent space (scVI) improves the preservation of local and global biological topologies in 2D embeddings (t-SNE/UMAP).
+### 5.1 What I Expected
+My initial expectation was that scVI would produce a cleaner latent space than PCA because it models scRNA-seq counts more directly. That part is true in the latent space itself, but it does not automatically mean that a PCA-optimized embedding recipe will behave better downstream.
 
-**Initial Hypothesis:** We initially hypothesized that since scVI explicitly models the zero-inflation and overdispersion of scRNA-seq counts via a ZINB likelihood, its latent space would be inherently "cleaner" and therefore yield a superior 2D embedding representation compared to PCA. 
+### 5.2 What the Current Numbers Say
+The current metric summaries show that the PCA-initialized Kobak recipe still does a very good job on PCA latents, while the same recipe transfers less cleanly to scVI latents.
 
-**Findings & Rejection of the Hypothesis (Kobak Workflow):**
-Our findings revealed a critical nuance: **direct application of scVI into t-SNE heuristics optimized for PCA utterly collapses the global structure.** 
-- **PCA-based t-SNE** highly benefits from PCA initialization, leaping in Correlative Preservation of Distances (CPD) from 0.231 (random init) to an impressive **0.578** (PCA init). Because PCA is a linear representation, Euclidean distances in PCA space directly correspond to data variance, matching the assumptions of standard t-SNE.
-- **scVI-based t-SNE**, however, is a highly non-linear probabilistic space. Imposing a linear PCA initialization on scVI latents conflicts with its topological structure, resulting in a significantly degraded CPD of **0.377** (and 0.310 in multiscale mode). Thus, the initial hypothesis is rejected under this specific workflow: a better latent space does not guarantee a better embedding if the reduction algorithm's assumptions (linearity, Euclidean distance) are mismatched.
+| Track | Embedding | KNN | KNC | CPD | Short note |
+| --- | --- | ---: | ---: | ---: | --- |
+| PCA baseline | t-SNE, PCA init | 0.383 | 0.605 | 0.578 | Strong global preservation |
+| PCA baseline | UMAP, n30/md0.5 | 0.208 | 0.634 | 0.559 | Good global structure, weaker KNN |
+| scVI Kobak-style | t-SNE, PCA init | 0.424 | 0.565 | 0.377 | Better local retention, weaker global match |
+| scVI Kobak-style | UMAP, n30/md0.5 | 0.213 | 0.623 | 0.350 | More balanced than t-SNE, still below PCA CPD |
 
-### 5.2 The Solution: Scanpy Workflow vs. Kobak Array-based Workflow
-To properly visualize scVI, we introduced a second evaluation track (**scVI Scanpy Workflow**):
-1. **Kobak Array-Based t-SNE/UMAP:** Feeds the raw 50D latent coordinates directly into embedding algorithms using Euclidean distance. Highly optimal for PCA, but toxic for non-linear generative models.
-2. **Scanpy Graph-Based Workflow:** Computes a K-Nearest Neighbor (KNN) affinity graph (`sc.pp.neighbors`) on the scVI latent space *prior* to embedding, mapping the non-linear manifold topologically. UMAP is then run directly on this graph (`sc.tl.umap`).
+These values are from the completed array-based benchmark runs. I would keep the Scanpy graph-based scVI workflow in a separate row once its metrics are finalized, because it is a different embedding pipeline rather than just another parameter choice.
 
-*(Note on UMAP vs t-SNE for scVI: The scverse ecosystem predominantly recommends graph-based UMAP. Standard t-SNE implementations calculate affinities directly from the raw Euclidean array, making it less natural and rarely used in tandem with pre-computed non-linear KNN graphs)*
+### 5.3 What I Would Show in the README
+For the main README, I would not use the Nextflow metro-map as the primary result figure. It is useful, but it explains the workflow rather than the benchmark outcome.
 
-### 5.3 Metric Definitions
-To avoid subjective visual bias, embeddings are scored using:
-- **KNN (K-Nearest Neighbors Preservation):** The fraction of local neighborhoods preserved from the high-dimensional space into the 2D projection. (Measures local structure).
-- **KNC (K-Nearest Class Purity):** The fraction of nearest neighbors that belong to the same biological class/cluster. (Measures cluster coherence).
-- **CPD (Correlative Preservation of Distances):** Spearman correlation ($\rho$) between pairwise distances in the original space and 2D space. (Measures global structure preservation).
+My preferred layout is:
+1. one compact comparison figure with three panels: PCA baseline, scVI Kobak-style result, and scVI Scanpy graph-based result,
+2. one metrics table underneath it, and
+3. one workflow diagram or metro-map as a smaller methods figure in the appendix or implementation section.
 
-## 5.4 Tasic et al. 2018 — paper context and why t-SNE was used
-
-The Tasic et al. 2018 study is a large single-cell transcriptomic survey of mouse cortical neurons (VISp and ALM regions) aimed at generating a detailed taxonomy of cortical cell types rather than explicitly tracing developmental trajectories. The primary goals were to
-- characterize cell types and marker genes, and
-- build a reproducible reference atlas of cortical cell taxonomy.
-
-Because the paper's main goal is classifying and visualizing discrete cell types and their relationships, t-SNE (with PCA preprocessing) is a natural choice in that work: t-SNE excels at producing visually separable clusters which helps in identifying and labeling cell types. t-SNE with PCA initialization further helps maintain a coarse global arrangement (inter-cluster relationships) while emphasizing local cluster structure.
-
-If your downstream analysis goal were different (e.g., inferring continuous developmental trajectories or preserving long-range manifold geometry), then representations and visualization algorithms that emphasize global topology (diffusion maps, PHATE, or PCA-based summaries) would be more appropriate.
-
-## 5.5 Choosing a representation and embedding based on the analysis goal
-Pick the latent and visualization method that matches your biological question:
-
-- **Cell type identification / marker discovery (clustering focus):** prioritize local structure and cluster purity — use UMAP (graph-based) or t-SNE; for scVI latents prefer the Scanpy graph-based UMAP workflow to compute KNN on the learned manifold first.
-- **Trajectory / continuous processes (global topology):** prioritize global structure — use PCA-derived summaries, diffusion maps, or PHATE. If using t-SNE, use PCA initialization and tune multi-scale perplexity to better preserve global relations.
-- **Differential neighborhood testing / local cell–cell comparisons:** use representations and embeddings that preserve local neighbor ranks (Trustworthiness, KNN metrics) and validate with multiple metrics.
-
-### Quick guide
-- If you want visually crisp clusters for annotation: `sc.pp.neighbors(use_rep=...)` -> `sc.tl.umap()` (graph-based). 
-- If you want to preserve global distances/trajectories: run PCA or diffusion map first, then visualize (PCA + t-SNE with PCA init or PHATE).
+That gives the reader the result first, then the pipeline, which is much easier to scan than a long block of prose.
 
 ## 6. Work Log (Updated 2026-05-26)
 - Implemented PCA-initialized t-SNE benchmark variants in the pipeline.
-- Fully integrated scVI deep generative baseline tests.
-- Discovered that PCA initialization severely limits highly non-linear scVI latents (CPD scores dropped from 0.578 in PCA to 0.377 in scVI).
-- Introduced a dedicated **Scanpy Graph-based UMAP Workflow** for scVI to properly resolve the latent manifold prior to 2D projection.
-- Configured `.gitignore` to track lightweight metrics and high-res visualizations while excluding heavy `.h5ad` models.
-- Integrated multi-panel automatic drawing for both Kobak variants (6-panel) and Scanpy convention tests via Nextflow branching.
+- Integrated the scVI deep generative baseline.
+- Found that PCA initialization is a poor match for some scVI embeddings, especially when I force the Kobak-style t-SNE recipe onto them.
+- Added a Scanpy graph-based UMAP workflow for scVI so I can compare a more natural manifold-aware embedding path.
+- Updated `.gitignore` so lightweight result artifacts stay tracked while heavy `.h5ad` files stay out.
+- Kept the README focused on the benchmark outcome instead of the implementation details alone.
 
 ---
 *Developed for application to the Kobak Lab PhD Program and reproducible research in single-cell benchmarking.*
+
+## References
+- Kobak, D. & Berens, P. *The art of using t-SNE for single-cell transcriptomics.* [Nature Communications (2019)](https://www.nature.com/articles/s41467-019-13055-y)
+- Tasic, B. et al. *Shared and distinct transcriptomic cell types across neocortical areas.* [Cell (2018)](https://www.cell.com/cell/fulltext/S0092-8674(18)30751-4)
+- Lopez, R. et al. *Deep generative modeling for single-cell transcriptomics.* [Nature Methods (2018)](https://www.nature.com/articles/s41592-018-0229-2)
+- Wolf, F. A. et al. *Scanpy: large-scale single-cell gene expression data analysis.* [Genome Biology (2018)](https://genomebiology.biomedcentral.com/articles/10.1186/s13059-017-1382-0)
+- McInnes, L., Healy, J. & Melville, J. *UMAP: Uniform Manifold Approximation and Projection for Dimension Reduction.* [arXiv (2018)](https://arxiv.org/abs/1802.03426)
+- Linderman, G. C. et al. *Fast interpolation-based t-SNE for improved visualization of single-cell RNA-seq data.* [Nature Methods (2019)](https://www.nature.com/articles/s41592-018-0308-4)
