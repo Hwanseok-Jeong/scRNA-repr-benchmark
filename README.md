@@ -107,9 +107,10 @@ scRNA-repr-benchmark/
 ├── main.nf                     # Nextflow workflow entry point
 ├── nextflow.config             # workflow configuration
 ├── environment.yml             # conda environment spec (tasic_benchmark)
-├── README.md                   # project overview, interpretation, and plan
+├── README.md                   # project overview and report
 │
-├── data/                       # input data and preprocessed matrices
+├── data/                       # local input data (not committed to git due to 	
+│	│							  file size)								
 │   └── *.h5ad                  # Tasic raw/preprocessed AnnData files
 │
 ├── scripts/                    # analysis code
@@ -118,17 +119,10 @@ scRNA-repr-benchmark/
 │   ├── embedding.py            # t-SNE / UMAP embedding runs
 │   ├── evaluation.py           # metrics (KNN, KNC, CPD, etc.)
 │   ├── visualization.py        # static plots and summary figures
-│   └── *.py                    # supporting utilities and plotting helpers
-│
-├── REFERENCE-rna-seq-tsne/     # Kobak reference notebooks and helpers
-│   ├── demo.ipynb              # reference workflow notebook
-│   ├── umap-comparison.ipynb   # UMAP parameter comparison
-│   └── rnaseqTools.py          # reference gene-selection helper
-│
-├── FIt-SNE/                    # bundled FIt-SNE source and binary
-│   ├── bin/fast_tsne           # compiled FIt-SNE binary
-│   ├── src/                    # upstream source code
-│   └── examples/               # example notebooks and runs
+│   ├── fetch_tasic.py          # dataset download/prep helper
+│   ├── batch_explore.py        # exploratory batch analysis runs
+│   ├── embedding_scvi_convention.py
+│   └── visualization_scvi_convention.py
 │
 ├── results/                    # generated outputs
 │   ├── figures/                # exported PNG/PDF figures used in README
@@ -136,8 +130,7 @@ scRNA-repr-benchmark/
 │   ├── metrics/                # metric tables and summaries
 │   ├── batch_explore/          # exploratory run outputs
 │   └── scvi_scanpy_workflow/   # Scanpy-based comparison figures
-│
-└── work/                       # Nextflow work directory (intermediate outputs)
+
 ```
 
 ## 2. Aims and Objectives
