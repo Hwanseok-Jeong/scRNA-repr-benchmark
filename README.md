@@ -1,16 +1,18 @@
 # Comparative Evaluation of PCA and scVI Latent Spaces for scRNA-seq Embedding
 
+This repository documents an exploratory, reproducible plan to evaluate how latent geometry affects downstream embeddings.
+
 > Note: This README is a working draft under active revision. The document describes a small-scale, exploratory comparative study rather than a large-scale benchmark; wording and interpretation may be updated as additional results are generated.
 
-> Maintainer note: I will be unavailable for development from 2026-05-27 to 2026-06-01; expect delayed responses during this period.
+> Temporary Note: I will be unavailable for development from 2026-05-27 to 2026-06-01; expect delayed responses during this period.
 
 ## Executive Summary
-This repository presents a focused comparison of 2D visualization strategies applied to two different latent representations of scRNA-seq data:
+This repository compares two latent representations (PCA and scVI) and evaluates multiple downstream 2D embedding workflows (array-based Kobak t‑SNE/UMAP and Scanpy's graph‑based UMAP).
 - PCA with Kobak-style t-SNE/UMAP as the linear reference.
 - scVI latent representations embedded with the same array-based Kobak-style embedding setup.
 - scVI latent representations embedded using Scanpy's graph-based UMAP workflow.
 
-In the current experiments the PCA-initialized Kobak settings perform well on PCA latents, while the same array-based settings transfer less consistently to scVI latents. For scVI latents, the graph-based UMAP workflow appeared more compatible with the learned latent geometry in these experiments.
+In the current experiments the PCA-initialized Kobak settings perform well on PCA latents, while the same array-based settings transfer less consistently to scVI latents. I do not see a defensible basis here for claiming that the Scanpy graph-based workflow is better on this dataset; the safer reading is that the graph-based workflow is a conventional downstream choice, but in these runs it does not show a clear advantage, and any apparent differences should be treated as exploratory observations pending the planned robustness tests.
 
 ## Key Comparison Figures
 The following PDFs provide the primary visual comparison used in this report:
@@ -41,11 +43,22 @@ I deliberately leave generic autoencoders out of the main comparison. For raw-co
 
 This repository builds on the Kobak lab reference implementation [rna-seq-tsne](https://github.com/berenslab/rna-seq-tsne) and uses [FIt-SNE](https://github.com/KlugerLab/FIt-SNE) for the t-SNE runs.
 
+
 ## 2. Quick Start
-1. Create the environment from the provided spec.
+1. Create the environment from the provided spec. The provided `environment.yml` includes `name: tasic_benchmark`, so the following command will create an environment with that name:
 
 	```bash
 	conda env create -f environment.yml
+	```
+
+If you prefer a different environment name or a custom installation path, you can override this at creation time:
+
+	```bash
+	# create with a custom name
+	conda env create -f environment.yml --name myenv
+
+	# or create at a specific path
+	conda env create -f environment.yml --prefix /path/to/env
 	```
 
 2. Activate the environment.
@@ -53,6 +66,8 @@ This repository builds on the Kobak lab reference implementation [rna-seq-tsne](
 	```bash
 	conda activate tasic_benchmark
 	```
+
+If you created the environment with `--name myenv` use `conda activate myenv`, or if you used `--prefix` activate using the full path (`conda activate /path/to/env`).
 
 3. Check that the bundled t-SNE binary exists.
 
@@ -84,6 +99,46 @@ Key packages captured in `environment.yml` (concise):
 - **FIt-SNE:** bundled binary in `FIt-SNE/bin/fast_tsne` (check before running)
 
 For full reproducibility, consult `environment.yml` for the complete dependency list and pinned versions.
+
+## Repository Structure
+
+```text
+scRNA-repr-benchmark/
+├── main.nf                     # Nextflow workflow entry point
+├── nextflow.config             # workflow configuration
+├── environment.yml             # conda environment spec (tasic_benchmark)
+├── README.md                   # project overview, interpretation, and plan
+│
+├── data/                       # input data and preprocessed matrices
+│   └── *.h5ad                  # Tasic raw/preprocessed AnnData files
+│
+├── scripts/                    # analysis code
+│   ├── preprocessing.py        # gene selection, normalization, QC
+│   ├── latent_model.py         # PCA / scVI latent construction
+│   ├── embedding.py            # t-SNE / UMAP embedding runs
+│   ├── evaluation.py           # metrics (KNN, KNC, CPD, etc.)
+│   ├── visualization.py        # static plots and summary figures
+│   └── *.py                    # supporting utilities and plotting helpers
+│
+├── REFERENCE-rna-seq-tsne/     # Kobak reference notebooks and helpers
+│   ├── demo.ipynb              # reference workflow notebook
+│   ├── umap-comparison.ipynb   # UMAP parameter comparison
+│   └── rnaseqTools.py          # reference gene-selection helper
+│
+├── FIt-SNE/                    # bundled FIt-SNE source and binary
+│   ├── bin/fast_tsne           # compiled FIt-SNE binary
+│   ├── src/                    # upstream source code
+│   └── examples/               # example notebooks and runs
+│
+├── results/                    # generated outputs
+│   ├── figures/                # exported PNG/PDF figures used in README
+│   ├── embeddings/             # latent space / embedding outputs
+│   ├── metrics/                # metric tables and summaries
+│   ├── batch_explore/          # exploratory run outputs
+│   └── scvi_scanpy_workflow/   # Scanpy-based comparison figures
+│
+└── work/                       # Nextflow work directory (intermediate outputs)
+```
 
 ## 2. Aims and Objectives
 The study is organized around the following objectives:
@@ -146,7 +201,7 @@ The initial expectation was that scVI would produce a cleaner latent space than 
 ### 5.2 What the Current Numbers Indicate
 The reported metric summaries indicate that the PCA-initialized Kobak settings perform well on PCA latents, while the same array-based settings are less consistent when applied to scVI latents.
 
-The comparison between the array-based Kobak workflow and the Scanpy graph-based workflow is influenced by the geometry of the learned scVI latent space: the former operates directly on Euclidean coordinates, whereas the latter first constructs a neighborhood graph before applying UMAP. In the current figures the graph-based workflow appears to better respect some aspects of scVI's latent geometry.
+The comparison between the array-based Kobak workflow and the Scanpy graph-based workflow is influenced by the geometry of the learned scVI latent space: the former operates directly on Euclidean coordinates, whereas the latter first constructs a neighborhood graph before applying UMAP. In this dataset I do not see a clear global-structure advantage for the graph-based workflow. CPD can be useful as one summary measure, but it also has limitations, so the more cautious conclusion is that the figures do not show a large or decisive difference in global structure preservation.
 
 | Track | Embedding | KNN | KNC | CPD | Short note |
 | --- | --- | ---: | ---: | ---: | --- |
@@ -157,37 +212,35 @@ The comparison between the array-based Kobak workflow and the Scanpy graph-based
 
 These values are from the completed array-based benchmark runs.
 
-## Current Status
+## Interpretation & Hypotheses (working draft)
+This section is still being revised. The present observations (PCA latents yielding more consistent results under the Kobak‑style pipeline than scVI latents) are reported as empirical findings rather than definitive conclusions. Multiple, non‑exclusive mechanisms could contribute to the observed differences; below we describe the most plausible ones and the simple diagnostics we will use to probe them.
 
-Completed:
-- Kobak-style PCA reproduction
-- scVI latent evaluation
-- Quantitative metric comparison (KNN, KNC, CPD)
+One plausible mechanism is that scVI latents are less isotropic than PCA space. PCA produces a variance‑ordered coordinate system by construction, while scVI does not enforce axiswise variance structure. If scVI exhibits a steeper eigenvalue spectrum or a lower isotropy index, distance‑based embedding methods that assume more uniform scales across axes could be affected. We will examine eigenvalue spectra (PCA applied to latents) and report a compact isotropy statistic (for example, geometric mean divided by arithmetic mean of eigenvalues) to evaluate this possibility.
 
-## Future Work
+Local manifold curvature is another candidate explanation. If scVI places neighborhood points on more curved, nonlinear manifolds, a PCA‑based initialization for t‑SNE may bias the optimizer toward PCA‑like global layouts and reduce the algorithm's ability to follow scVI's intrinsic geometry. To probe local nonlinearity we will perform PCA within k‑neighborhoods and compare distributions of local explained variance between PCA and scVI latents.
 
-- Multi-seed / stochastic variability evaluation
-- Additional datasets for generality testing
-- Robustness and hyperparameter sensitivity analyses
+Initialization effects themselves may also matter: PCA initialization for t‑SNE can implicitly favour PCA‑aligned structure, whereas random initialization allows the algorithm greater freedom to follow the latent geometry. We will compare t‑SNE embeddings run with PCA and random initializations on the same latent representations and report how KNN, CPD and related diagnostics change.
 
-## Repository Structure
+> Heterogeneous local densities in the latent space could produce additional distortions. If scVI creates regions of compression and expansion, density‑sensitive methods such as t‑SNE and UMAP may distort those regions differently; we will therefore compare local kNN distance distributions and neighborhood compactness measures to assess density effects and explore simple density‑aware normalizations.
 
-```text
-workflow/      # Nextflow workflow definitions (main.nf, nextflow.config)
-scripts/       # preprocessing, latent modeling, embedding, metrics
-FIt-SNE/       # bundled FIt-SNE binary and helpers
-results/       # generated embeddings and metric outputs
-figures/       # exported figures used in README
-work/          # Nextflow work directory (intermediate outputs)
-```
+Finally, graph‑based UMAP may appear more favourable on scVI latents because constructing a kNN graph can stabilise neighborhood relations that are less well captured by direct Euclidean comparisons. We will quantify kNN graph agreement across seeds (for example, using Jaccard overlap of kNN sets) and relate graph stability to downstream UMAP behaviour.
+
+For each hypothesis this study will present the targeted diagnostics (figures and concise summary statistics) so readers can judge which mechanisms are most consistent with the data.
 
 ## Limitations
 
-- Evaluation primarily performed on the Tasic 2018 dataset; results may not generalize.
-- Limited exploration of stochastic variability (random seeds) in the present runs.
-- Focus restricted to downstream visualization geometry and selected metrics; not a comprehensive benchmarking suite.
-- No extensive hyperparameter sweep was performed for all methods and embeddings.
-- This is an exploratory comparative study intended to motivate further, more exhaustive evaluations.
+- This is still an exploratory comparative study rather than a final benchmark.
+- The present results are based mainly on the Tasic 2018 dataset and a limited number of stochastic runs.
+- CPD and the other summary metrics are useful, but each has interpretation limits, so conclusions should remain cautious.
+
+## Future Work
+
+- Formalize the robustness protocol in the pipeline: pilot N = 3, full runs N ≥ 10, seed-wise summaries, and bootstrap confidence intervals.
+- Add latent-geometry diagnostics, including eigenvalue spectra, isotropy, local density, and neighborhood agreement.
+- Run parameter-sensitivity sweeps for t-SNE and UMAP, then report seed-variance plots and heatmaps.
+- Decide whether an additional baseline such as a simple autoencoder or PCA-whitened variant is worth adding.
+- Expand to additional datasets if the Tasic-only comparison remains stable.
+- Export the pending figures listed above once the remaining runs are complete.
 
 ## References
 - Kobak, D. & Berens, P. *The art of using t-SNE for single-cell transcriptomics.* [Nature Communications (2019)](https://www.nature.com/articles/s41467-019-13055-y)
