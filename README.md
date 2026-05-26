@@ -1,14 +1,16 @@
-# scRNA-seq Representation Learning Benchmark: A Comparative Study of Linear and Non-Linear Latent Spaces
+# Comparative Evaluation of PCA and scVI Latent Spaces for scRNA-seq Embedding
 
-> Note: This README is a working draft under active revision. The benchmark interpretation and wording may be updated as additional results are finalized.
+> Note: This README is a working draft under active revision. The document describes a small-scale, exploratory comparative study rather than a large-scale benchmark; wording and interpretation may be updated as additional results are generated.
+
+> Maintainer note: I will be unavailable for development from 2026-05-27 to 2026-06-01; expect delayed responses during this period.
 
 ## Executive Summary
-This study compares three 2D embedding strategies for scRNA-seq representation analysis:
+This repository presents a focused comparison of 2D visualization strategies applied to two different latent representations of scRNA-seq data:
 - PCA with Kobak-style t-SNE/UMAP as the linear reference.
 - scVI latent representations embedded with the same array-based Kobak-style embedding setup.
-- scVI latent representations embedded with Scanpy's graph-based UMAP workflow.
+- scVI latent representations embedded using Scanpy's graph-based UMAP workflow.
 
-The current results indicate that PCA-style initialization is highly effective for PCA latents, whereas transfer of the same initialization strategy to scVI latents is less consistent. For scVI, the graph-based UMAP workflow is evaluated here as the methodologically better-matched approach.
+In the current experiments the PCA-initialized Kobak settings perform well on PCA latents, while the same array-based settings transfer less consistently to scVI latents. For scVI latents, the graph-based UMAP workflow appeared more compatible with the learned latent geometry in these experiments.
 
 ## Key Comparison Figures
 The following PDFs provide the primary visual comparison used in this report:
@@ -31,11 +33,11 @@ In the current document structure, these figures are intentionally placed before
 ## 1. Introduction & Motivation
 High-dimensional single-cell RNA-sequencing (scRNA-seq) data is usually explored with nonlinear dimensionality reduction methods such as t-SNE and UMAP. In *The art of using t-SNE for single-cell transcriptomics* [Kobak & Berens, 2019](https://www.nature.com/articles/s41467-019-13055-y), PCA initialization and careful parameter choice are enough to recover both local cluster structure and a coarse global layout.
 
-I started this project after reading Kobak's lectures and paper, and I wanted a benchmark that is small enough to run on a local machine but still large enough to expose the failure modes of different embeddings. The Tasic dataset was a practical choice for that reason: it is big enough to be interesting, but still manageable without a dedicated GPU during prototyping.
+I started this project after reading Kobak's lectures and paper. I wanted a small-scale, reproducible setup that can be run locally yet is large enough to expose common failure modes of downstream embeddings. The Tasic dataset was a practical choice for that reason: it is large enough to be informative, but still manageable without a dedicated GPU during prototyping.
 
-The main question in this repository is simple: if I replace the usual linear PCA latent space with a count-aware deep generative latent space such as scVI, do the downstream embeddings become better, or do they break because the embedding algorithm makes the wrong assumptions?
+The primary question explored here is whether replacing a linear PCA latent space with a count-aware generative latent space such as scVI affects downstream visualizations: does the downstream visualization improve, or does the latent geometry interact differently with embedding assumptions optimized for PCA-based workflows?
 
-I deliberately leave AE/VAE out of the main benchmark. In a raw-count setting, a plain Gaussian reconstruction loss is not a great fit for scRNA-seq noise, so the comparison becomes less clean than PCA vs scVI. scVI is the more appropriate count-aware baseline because it models overdispersion and zero inflation directly.
+I deliberately leave generic autoencoders out of the main comparison. For raw-count scRNA-seq data, a Gaussian reconstruction loss is not an ideal noise model, which would confound a straightforward comparison with PCA. scVI provides a commonly used count-aware latent modeling framework for scRNA-seq data.
 
 This repository builds on the Kobak lab reference implementation [rna-seq-tsne](https://github.com/berenslab/rna-seq-tsne) and uses [FIt-SNE](https://github.com/KlugerLab/FIt-SNE) for the t-SNE runs.
 
@@ -58,8 +60,8 @@ This repository builds on the Kobak lab reference implementation [rna-seq-tsne](
 	ls FIt-SNE/bin/fast_tsne
 	```
 
-	If this file is missing, use the upstream FIt-SNE repository and follow its build instructions:
-	<https://github.com/KlugerLab/FIt-SNE>
+	If this file is missing, follow the upstream FIt-SNE build instructions:
+	https://github.com/KlugerLab/FIt-SNE
 
 4. Run the pipeline with Nextflow.
 
@@ -67,7 +69,21 @@ This repository builds on the Kobak lab reference implementation [rna-seq-tsne](
 	nextflow run main.nf -resume
 	```
 
-The environment definition is stored in `environment.yml` so the repository can be reproduced on another machine with a single conda command. The file already includes the main Python stack (`scanpy`, `anndata`, `scvi-tools`-compatible dependencies, `umap-learn`, `scikit-learn`) plus `nextflow`.
+The `environment.yml` file captures the main Python stack used for development (notably `scanpy`, `anndata`, `scvi-tools`-compatible dependencies, `umap-learn`, and `scikit-learn`) together with `nextflow` for workflow execution.
+
+### Environment summary
+Key packages captured in `environment.yml` (concise):
+
+- **Python:** 3.10.20
+- **scvi-tools:** 1.3.3 (pip)
+- **scanpy:** 1.11.5
+- **anndata:** 0.11.4
+- **umap-learn:** 0.5.12
+- **scikit-learn:** 1.7.2
+- **nextflow:** 26.04.1
+- **FIt-SNE:** bundled binary in `FIt-SNE/bin/fast_tsne` (check before running)
+
+For full reproducibility, consult `environment.yml` for the complete dependency list and pinned versions.
 
 ## 2. Aims and Objectives
 The study is organized around the following objectives:
@@ -108,9 +124,9 @@ Implementation notes:
 
 ### 4.3 Dimensionality Reduction
 - **t-SNE implementation:** `scripts/embedding.py` uses the Kobak FIt-SNE wrapper interface and the same recommended settings: PCA-style initialization, learning rate $N/12$, and multi-scale perplexity `[30, N/100]`.
-- **UMAP implementation:** The reference notebook `REFERENCE-rna-seq-tsne/umap-comparison.ipynb` compares two Tasic UMAP parameterizations. The second configuration, `random_state=1`, `n_neighbors=30`, `min_dist=0.5`, is used as the default in this benchmark because it is the configuration reproduced in the reference material and is the one carried through the downstream comparisons.
+- **UMAP implementation:** The reference notebook `REFERENCE-rna-seq-tsne/umap-comparison.ipynb` compares two Tasic UMAP parameterizations. The second configuration (`random_state=1`, `n_neighbors=30`, `min_dist=0.5`) is used as the default in this work because it reproduces the reference material and is used for downstream comparisons.
 
-Kobak-derived pieces that are intentionally preserved in this pipeline:
+Kobak-derived pieces intentionally preserved in this pipeline:
 - Gene selection heuristic and its binary-search thresholding behavior.
 - CPM normalization and base-2 log transform.
 - PCA with `svd_solver='full'` and sign correction.
@@ -127,19 +143,51 @@ Kobak-derived pieces that are intentionally preserved in this pipeline:
 ### 5.1 What I Expected
 The initial expectation was that scVI would produce a cleaner latent space than PCA because it models scRNA-seq counts more directly. That remains plausible at the latent-space level, but it does not automatically imply improved performance under a PCA-optimized embedding setup.
 
-### 5.2 What the Current Numbers Say
-The current metric summaries show that the PCA-initialized Kobak settings still perform well on PCA latents, while the same settings transfer less cleanly to scVI latents.
+### 5.2 What the Current Numbers Indicate
+The reported metric summaries indicate that the PCA-initialized Kobak settings perform well on PCA latents, while the same array-based settings are less consistent when applied to scVI latents.
 
-The comparison between the array-based Kobak workflow and the Scanpy graph-based workflow is driven by the geometry of the learned scVI latent space: the former operates directly on Euclidean coordinates, whereas the latter constructs a neighborhood graph before applying UMAP. In the figures produced for this repository, that graph-based workflow is the more appropriate visualization path for scVI.
+The comparison between the array-based Kobak workflow and the Scanpy graph-based workflow is influenced by the geometry of the learned scVI latent space: the former operates directly on Euclidean coordinates, whereas the latter first constructs a neighborhood graph before applying UMAP. In the current figures the graph-based workflow appears to better respect some aspects of scVI's latent geometry.
 
 | Track | Embedding | KNN | KNC | CPD | Short note |
 | --- | --- | ---: | ---: | ---: | --- |
-| PCA baseline | t-SNE, PCA init | 0.383 | 0.605 | 0.578 | Strong global preservation |
+| PCA baseline | t-SNE, PCA init | 0.383 | 0.605 | 0.578 | Strong global preservation (current setup) |
 | PCA baseline | UMAP, n30/md0.5 | 0.208 | 0.634 | 0.559 | Good global structure, weaker KNN |
 | scVI Kobak-style | t-SNE, PCA init | 0.424 | 0.565 | 0.377 | Better local retention, weaker global match |
 | scVI Kobak-style | UMAP, n30/md0.5 | 0.213 | 0.623 | 0.350 | More balanced than t-SNE, still below PCA CPD |
 
 These values are from the completed array-based benchmark runs.
+
+## Current Status
+
+Completed:
+- Kobak-style PCA reproduction
+- scVI latent evaluation
+- Quantitative metric comparison (KNN, KNC, CPD)
+
+## Future Work
+
+- Multi-seed / stochastic variability evaluation
+- Additional datasets for generality testing
+- Robustness and hyperparameter sensitivity analyses
+
+## Repository Structure
+
+```text
+workflow/      # Nextflow workflow definitions (main.nf, nextflow.config)
+scripts/       # preprocessing, latent modeling, embedding, metrics
+FIt-SNE/       # bundled FIt-SNE binary and helpers
+results/       # generated embeddings and metric outputs
+figures/       # exported figures used in README
+work/          # Nextflow work directory (intermediate outputs)
+```
+
+## Limitations
+
+- Evaluation primarily performed on the Tasic 2018 dataset; results may not generalize.
+- Limited exploration of stochastic variability (random seeds) in the present runs.
+- Focus restricted to downstream visualization geometry and selected metrics; not a comprehensive benchmarking suite.
+- No extensive hyperparameter sweep was performed for all methods and embeddings.
+- This is an exploratory comparative study intended to motivate further, more exhaustive evaluations.
 
 ## References
 - Kobak, D. & Berens, P. *The art of using t-SNE for single-cell transcriptomics.* [Nature Communications (2019)](https://www.nature.com/articles/s41467-019-13055-y)
