@@ -71,20 +71,59 @@ To avoid subjective visual bias, embeddings are scored using:
 - **KNC Purity (Silhouette approximation):** Preservation of cluster label coherence.
 - **Correlative Preservation of Distances (CPD):** Spearman correlation between pairwise distances in the original gene space and the reduced space.
 
-## 5. Results
-*(To be populated after Nextflow pipeline executions)*
-- Baseline reproducibility confirmations.
-- Performance metric comparisons (Fixed 50D vs. Optimized dimensions).
-- Hyperparameter tuning observations via Loss vs. Dimensionality curves.
+## 5. Results & Discussion
 
-## 6. Discussion
-*(To be populated during analysis)*
+### 5.1 Research Aim & Initial Hypothesis
+**Aim:** To evaluate whether substituting a traditional linear baseline (PCA) with a more purified, count-aware deep generative latent space (scVI) improves the preservation of local and global biological topologies in 2D embeddings (t-SNE/UMAP).
 
-## 7. Work Log (2026-05-23)
-- Implemented PCA-initialized t-SNE benchmark variants in the pipeline (config-driven t-SNE/UMAP variants, per-variant evaluation, and visualization from saved outputs).
-- Current status: PCA50 output is numerically close to the reference but not yet perfectly identical.
-- Current status: scVI baseline is not fully implemented in this benchmark run.
-- scVI must start from the raw downloaded count matrix, not from the CPM/log-transformed PCA preprocessing path; the scVI branch should bypass normalization and log transform entirely.
+**Initial Hypothesis:** We initially hypothesized that since scVI explicitly models the zero-inflation and overdispersion of scRNA-seq counts via a ZINB likelihood, its latent space would be inherently "cleaner" and therefore yield a superior 2D embedding representation compared to PCA. 
+
+**Findings & Rejection of the Hypothesis (Kobak Workflow):**
+Our findings revealed a critical nuance: **direct application of scVI into t-SNE heuristics optimized for PCA utterly collapses the global structure.** 
+- **PCA-based t-SNE** highly benefits from PCA initialization, leaping in Correlative Preservation of Distances (CPD) from 0.231 (random init) to an impressive **0.578** (PCA init). Because PCA is a linear representation, Euclidean distances in PCA space directly correspond to data variance, matching the assumptions of standard t-SNE.
+- **scVI-based t-SNE**, however, is a highly non-linear probabilistic space. Imposing a linear PCA initialization on scVI latents conflicts with its topological structure, resulting in a significantly degraded CPD of **0.377** (and 0.310 in multiscale mode). Thus, the initial hypothesis is rejected under this specific workflow: a better latent space does not guarantee a better embedding if the reduction algorithm's assumptions (linearity, Euclidean distance) are mismatched.
+
+### 5.2 The Solution: Scanpy Workflow vs. Kobak Array-based Workflow
+To properly visualize scVI, we introduced a second evaluation track (**scVI Scanpy Workflow**):
+1. **Kobak Array-Based t-SNE/UMAP:** Feeds the raw 50D latent coordinates directly into embedding algorithms using Euclidean distance. Highly optimal for PCA, but toxic for non-linear generative models.
+2. **Scanpy Graph-Based Workflow:** Computes a K-Nearest Neighbor (KNN) affinity graph (`sc.pp.neighbors`) on the scVI latent space *prior* to embedding, mapping the non-linear manifold topologically. UMAP is then run directly on this graph (`sc.tl.umap`).
+
+*(Note on UMAP vs t-SNE for scVI: The scverse ecosystem predominantly recommends graph-based UMAP. Standard t-SNE implementations calculate affinities directly from the raw Euclidean array, making it less natural and rarely used in tandem with pre-computed non-linear KNN graphs)*
+
+### 5.3 Metric Definitions
+To avoid subjective visual bias, embeddings are scored using:
+- **KNN (K-Nearest Neighbors Preservation):** The fraction of local neighborhoods preserved from the high-dimensional space into the 2D projection. (Measures local structure).
+- **KNC (K-Nearest Class Purity):** The fraction of nearest neighbors that belong to the same biological class/cluster. (Measures cluster coherence).
+- **CPD (Correlative Preservation of Distances):** Spearman correlation ($\rho$) between pairwise distances in the original space and 2D space. (Measures global structure preservation).
+
+## 5.4 Tasic et al. 2018 — paper context and why t-SNE was used
+
+The Tasic et al. 2018 study is a large single-cell transcriptomic survey of mouse cortical neurons (VISp and ALM regions) aimed at generating a detailed taxonomy of cortical cell types rather than explicitly tracing developmental trajectories. The primary goals were to
+- characterize cell types and marker genes, and
+- build a reproducible reference atlas of cortical cell taxonomy.
+
+Because the paper's main goal is classifying and visualizing discrete cell types and their relationships, t-SNE (with PCA preprocessing) is a natural choice in that work: t-SNE excels at producing visually separable clusters which helps in identifying and labeling cell types. t-SNE with PCA initialization further helps maintain a coarse global arrangement (inter-cluster relationships) while emphasizing local cluster structure.
+
+If your downstream analysis goal were different (e.g., inferring continuous developmental trajectories or preserving long-range manifold geometry), then representations and visualization algorithms that emphasize global topology (diffusion maps, PHATE, or PCA-based summaries) would be more appropriate.
+
+## 5.5 Choosing a representation and embedding based on the analysis goal
+Pick the latent and visualization method that matches your biological question:
+
+- **Cell type identification / marker discovery (clustering focus):** prioritize local structure and cluster purity — use UMAP (graph-based) or t-SNE; for scVI latents prefer the Scanpy graph-based UMAP workflow to compute KNN on the learned manifold first.
+- **Trajectory / continuous processes (global topology):** prioritize global structure — use PCA-derived summaries, diffusion maps, or PHATE. If using t-SNE, use PCA initialization and tune multi-scale perplexity to better preserve global relations.
+- **Differential neighborhood testing / local cell–cell comparisons:** use representations and embeddings that preserve local neighbor ranks (Trustworthiness, KNN metrics) and validate with multiple metrics.
+
+### Quick guide
+- If you want visually crisp clusters for annotation: `sc.pp.neighbors(use_rep=...)` -> `sc.tl.umap()` (graph-based). 
+- If you want to preserve global distances/trajectories: run PCA or diffusion map first, then visualize (PCA + t-SNE with PCA init or PHATE).
+
+## 6. Work Log (Updated 2026-05-26)
+- Implemented PCA-initialized t-SNE benchmark variants in the pipeline.
+- Fully integrated scVI deep generative baseline tests.
+- Discovered that PCA initialization severely limits highly non-linear scVI latents (CPD scores dropped from 0.578 in PCA to 0.377 in scVI).
+- Introduced a dedicated **Scanpy Graph-based UMAP Workflow** for scVI to properly resolve the latent manifold prior to 2D projection.
+- Configured `.gitignore` to track lightweight metrics and high-res visualizations while excluding heavy `.h5ad` models.
+- Integrated multi-panel automatic drawing for both Kobak variants (6-panel) and Scanpy convention tests via Nextflow branching.
 
 ---
 *Developed for application to the Kobak Lab PhD Program and reproducible research in single-cell benchmarking.*
