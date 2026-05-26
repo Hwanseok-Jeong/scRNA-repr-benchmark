@@ -1,0 +1,51 @@
+{
+    "__meta__": {
+        "method": "pca",
+        "variant_orders": {
+            "tsne": [
+                "default",
+                "n100",
+                "pca_init",
+                "multiscale_pca_high_lr"
+            ],
+            "umap": [
+                "n15_md01",
+                "n30_md05"
+            ]
+        }
+    },
+    "tsne": {
+        "default": {
+            "KNN": 0.383,
+            "KNC": 0.521,
+            "CPD": 0.231
+        },
+        "n100": {
+            "KNN": 0.259,
+            "KNC": 0.686,
+            "CPD": 0.353
+        },
+        "pca_init": {
+            "KNN": 0.383,
+            "KNC": 0.605,
+            "CPD": 0.578
+        },
+        "multiscale_pca_high_lr": {
+            "KNN": 0.4,
+            "KNC": 0.692,
+            "CPD": 0.516
+        }
+    },
+    "umap": {
+        "n15_md01": {
+            "KNN": 0.25,
+            "KNC": 0.608,
+            "CPD": 0.575
+        },
+        "n30_md05": {
+            "KNN": 0.208,
+            "KNC": 0.634,
+            "CPD": 0.559
+        }
+    }
+}

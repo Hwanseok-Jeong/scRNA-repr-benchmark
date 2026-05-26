@@ -103,8 +103,8 @@ process LATENT_MODEL {
         "--gene_likelihood ${params.latent_models?.scvi?.gene_likelihood ?: 'zinb'}",
         "--layer ${params.latent_models?.scvi?.layer ?: 'counts'}",
         params.latent_models?.scvi?.dispersion ? "--dispersion ${params.latent_models.scvi.dispersion}" : ""
-    ].findAll { it }.join(" \\\n+        ") : ""
-    def scvi_args_block = scvi_args ? "${scvi_args} \\\n+        " : ""
+    ].findAll { it }.join(" \\\n        ") : ""
+    def scvi_args_block = scvi_args ? "${scvi_args} \\\n        " : ""
 
     """
     ${params.python_cmd} "${projectDir}/scripts/latent_model.py" \
@@ -158,6 +158,7 @@ process EVALUATION {
     ${params.python_cmd} "${projectDir}/scripts/evaluation.py" \
         --input "${embedded_h5ad}" \
         --method ${method} \
+        --dim ${dim} \
         --outdir . \
         --suffix _n${dim}
     """
@@ -177,6 +178,7 @@ process VISUALIZATION {
     path "${method}/n${dim}/*"
     script:
     """
+    # Cache breaker updated: rendering with black text and clear metric texts
     outdir="${method}/n${dim}"
     mkdir -p "\$outdir"
     ${params.python_cmd} "${projectDir}/scripts/visualization.py" \
@@ -184,7 +186,57 @@ process VISUALIZATION {
         --method ${method} \
         --metrics "${metric_json}" \
         --outdir "\$outdir" \
+        --dim ${dim} \
         --suffix ""
+    """
+}
+
+// -------------------------------------------------------------
+// [ADD] scVI Scanpy Convention Embedding
+// -------------------------------------------------------------
+process EMBEDDING_SCVI_CONVENTION {
+    tag "Scanpy UMAP: ${method}:${dim}"
+    publishDir "${params.results_dir}/scvi_scanpy_workflow/embeddings", mode: 'copy'
+
+    input:
+    tuple val(method), val(dim), path(latent_h5ad)
+
+    output:
+    tuple val(method), val(dim), path("tasic_scanpy_${method}_n${dim}.h5ad"), emit: scanpy_h5ad
+    
+    script:
+    """
+    ${params.python_cmd} "${projectDir}/scripts/embedding_scvi_convention.py" \
+        --input "${latent_h5ad}" \
+        --output tasic_scanpy_${method}_n${dim}.h5ad \
+        --method ${method} \
+        --dim ${dim}
+    """
+}
+
+// -------------------------------------------------------------
+// [ADD] scVI Scanpy Convention Visualization
+// -------------------------------------------------------------
+process VISUALIZATION_SCVI_CONVENTION {
+    tag "Plot Scanpy UMAPs: ${method}"
+    publishDir "${params.results_dir}/scvi_scanpy_workflow/figures", mode: 'copy'
+
+    input:
+    tuple val(method), val(dims), path(h5ads)
+
+    output:
+    path "*.png"
+    path "*.pdf"
+    
+    script:
+    def dims_str = dims.join(' ')
+    def h5ads_str = h5ads.join(' ')
+    """
+    # Cache breaker: Added metrics calculation onto the figure directly
+    ${params.python_cmd} "${projectDir}/scripts/visualization_scvi_convention.py" \
+        --inputs ${h5ads_str} \
+        --dims ${dims_str} \
+        --outdir .
     """
 }
 
@@ -255,4 +307,10 @@ workflow {
 
     // 7. Run Visualizations in parallel
     VISUALIZATION(metrics_data)
+
+    // 8. New branch for scVI Scanpy convention (Filter for scvi, and group by method)
+    def scvi_latent = latent_data.filter { it[0] == 'scvi' }
+    scanpy_embedded = EMBEDDING_SCVI_CONVENTION(scvi_latent)
+    scanpy_grouped = scanpy_embedded.groupTuple(by: 0)
+    VISUALIZATION_SCVI_CONVENTION(scanpy_grouped)
 }

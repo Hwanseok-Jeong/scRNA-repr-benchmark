@@ -218,7 +218,7 @@ __marimo__/
 .streamlit/secrets.toml
 
 # Docs
-*.pdf
+# *.pdf (commented out to allow tracking figure PDFs)
 
 # Nextflow
 .nextflow/
@@ -230,7 +230,9 @@ nextflow*.log
 
 # Data/results
 data/
-results/
+# results/ (commented out to track lightweight files like json, png, pdf, and npy)
+results/**/*.h5ad
+
 
 # Local reference/vendor copies
 FIt-SNE/

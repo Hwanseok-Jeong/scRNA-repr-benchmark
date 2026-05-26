@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import re
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -116,6 +117,30 @@ def embedding_quality(X, Z, classes, knn=10, knn_classes=10, subsetsize=1000):
     return (mnn, mnn_global, rho)
 
 
+def resolve_high_dim_key(adata, method, dim=None):
+    if method == "pca" and "X_pca" in adata.obsm:
+        return "X_pca"
+
+    if dim is not None:
+        dim_key = f"X_latent_{method}_n{dim}"
+        if dim_key in adata.obsm:
+            return dim_key
+
+    exact_key = f"X_latent_{method}"
+    if exact_key in adata.obsm:
+        return exact_key
+
+    prefix = f"X_latent_{method}_n"
+    dim_keys = [key for key in adata.obsm_keys() if key.startswith(prefix)]
+    if dim_keys:
+        def dim_from_key(key):
+            match = re.search(r"_n(\d+)$", key)
+            return int(match.group(1)) if match else -1
+        return sorted(dim_keys, key=dim_from_key, reverse=True)[0]
+
+    return None
+
+
 def place_cluster_center_labels(ax, coords, cell_labels, cluster_names, ordered_colors, labels):
     for class_name, representative_label in labels:
         matches = np.where(cluster_names == representative_label)[0]
@@ -128,13 +153,19 @@ def place_cluster_center_labels(ax, coords, cell_labels, cluster_names, ordered_
         ax.text(x_pos, y_pos, class_name, fontsize=6, color=ordered_colors[matches[0]])
 
 
-def plot_tasic_variants(adata, metrics, outdir):
+def plot_tasic_variants(adata, metrics, outdir, latent_key="X_pca"):
     sns_styleset()
 
-    X = np.asarray(adata.obsm["X_pca"])
+    X = np.asarray(adata.obsm[latent_key])
+    
+    # Modify panel b: if it's not PCA, calculate PCA of the latent space to compare fairly
+    if "pca" not in latent_key.lower():
+        pca_2d = PCA(n_components=2, random_state=42).fit_transform(X)
+    else:
+        pca_2d = X[:, :2]
+        
     cluster_ids, _, cluster_colors, cluster_names, ordered_colors, cluster_sizes = get_cluster_metadata(adata)
     cell_labels = adata.obs["cluster_label"].astype(str).to_numpy()
-    pca_2d = X[:, :2]
     pca_quality = embedding_quality(X, pca_2d, cluster_ids)
 
     cluster_means = np.zeros((cluster_names.size, X.shape[1]))
@@ -148,9 +179,10 @@ def plot_tasic_variants(adata, metrics, outdir):
     tsne_variants = [(variant_name, adata.obsm[f"X_tsne_{variant_name}"]) for variant_name in tsne_order if f"X_tsne_{variant_name}" in adata.obsm]
     tsne_variant_map = dict(tsne_variants)
 
+    method_name = latent_key.replace("X_latent_", "").replace("X_", "").upper()
     titles = [
         "MDS on class means",
-        "PCA",
+        "PCA of Latent Space" if "pca" not in latent_key.lower() else "PCA",
         "Default t-SNE\n(perpexity 30, random init., $\\eta=200$)",
         "Perplexity $n/100$",
         "PCA initialisation",
@@ -159,6 +191,8 @@ def plot_tasic_variants(adata, metrics, outdir):
     letters = "abcdef"
 
     plt.figure(figsize=(7.2, 5))
+    plt.figtext(0.01, 0.98, f"Latent: {method_name}", fontsize=8, fontweight="bold", color="black", ha="left", va="top")
+
     plt.subplot(231)
     plt.gca().set_aspect("equal", adjustable="datalim")
     plt.scatter(z_mds[:, 0], z_mds[:, 1], c=ordered_colors, edgecolor="none", s=cluster_sizes / 10)
@@ -261,7 +295,7 @@ def plot_tasic_subsets_pca(adata, outdir):
     plt.close()
 
 
-def plot_umap_small(adata, metrics, outdir):
+def plot_umap_small(adata, metrics, outdir, latent_key="X_pca"):
     sns_styleset()
     cluster_colors = adata.obs["cluster_color"].astype(str).to_numpy()
     umap_metrics = metrics.get("umap", {})
@@ -281,6 +315,9 @@ def plot_umap_small(adata, metrics, outdir):
     z_tasic2 = adata.obsm[f"X_umap_{umap_order[1]}"]
 
     plt.figure(figsize=(6, 3))
+    method_name = latent_key.replace("X_latent_", "").replace("X_", "").upper()
+    plt.figtext(0.01, 0.98, f"Latent: {method_name}", fontsize=8, fontweight="bold", color="black", ha="left", va="top")
+
     plt.subplot(121)
     plt.gca().set_aspect("equal", adjustable="datalim")
     plt.scatter(z_tasic1[:, 0], z_tasic1[:, 1], s=1, rasterized=True, c=cluster_colors, edgecolor="none")
@@ -313,6 +350,7 @@ def main():
     parser.add_argument("--metrics", required=True, help="Path to metrics JSON file")
     parser.add_argument("--outdir", default="results/figures/", help="Directory to save figures")
     parser.add_argument("--suffix", default="", help="Optional suffix appended to generated figure filenames")
+    parser.add_argument("--dim", type=int, default=None, help="Latent dimensionality to select the high-D key")
     args = parser.parse_args()
     
     os.makedirs(args.outdir, exist_ok=True)
@@ -325,59 +363,38 @@ def main():
         metrics = json.load(f)
     adata.uns["variant_metrics"] = metrics
 
-    required_latent_key = f"X_latent_{args.method}"
-    if required_latent_key not in adata.obsm:
-        raise ValueError(f"[!] {required_latent_key} missing in adata.obsm. Rerun latent_model.py.")
+    required_latent_key = resolve_high_dim_key(adata, args.method, args.dim)
+    if required_latent_key is None:
+        raise ValueError(
+            f"[!] No high-dimensional key found for method '{args.method}'. "
+            f"Expected 'X_pca' or 'X_latent_{args.method}[_n<dim>]' in adata.obsm."
+        )
         
+    for key in ["cluster_id", "cluster_label", "cluster_color"]:
+        if key not in adata.obs:
+            raise ValueError(f"[!] Required obs column '{key}' not found for plots.")
+            
+    # Ensure embeddings + metrics exist for all variants referenced by the plots.
+    expected_tsne = list(adata.uns.get("tsne_variant_order", []))
+    expected_umap = list(adata.uns.get("umap_variant_order", []))
+    missing_tsne_embeddings = [name for name in expected_tsne if f"X_tsne_{name}" not in adata.obsm]
+    missing_umap_embeddings = [name for name in expected_umap if f"X_umap_{name}" not in adata.obsm]
+    missing_tsne_metrics = [name for name in expected_tsne if name not in metrics.get("tsne", {})]
+    missing_umap_metrics = [name for name in expected_umap if name not in metrics.get("umap", {})]
+    if missing_tsne_embeddings or missing_umap_embeddings or missing_tsne_metrics or missing_umap_metrics:
+        raise ValueError(
+            "[!] Missing embeddings/metrics for variants. "
+            f"t-SNE embeddings: {missing_tsne_embeddings} | UMAP embeddings: {missing_umap_embeddings} | "
+            f"t-SNE metrics: {missing_tsne_metrics} | UMAP metrics: {missing_umap_metrics}. "
+            "Re-run evaluation.py and ensure variants match embedding outputs."
+        )
+        
+    plot_tasic_variants(adata, metrics, args.outdir, latent_key=required_latent_key)
+    
     if args.method == "pca":
-        for key in ["cluster_id", "cluster_label", "cluster_color"]:
-            if key not in adata.obs:
-                raise ValueError(f"[!] Required obs column '{key}' not found for PCA plots.")
-        # Ensure embeddings + metrics exist for all variants referenced by the plots.
-        expected_tsne = list(adata.uns.get("tsne_variant_order", []))
-        expected_umap = list(adata.uns.get("umap_variant_order", []))
-        missing_tsne_embeddings = [name for name in expected_tsne if f"X_tsne_{name}" not in adata.obsm]
-        missing_umap_embeddings = [name for name in expected_umap if f"X_umap_{name}" not in adata.obsm]
-        missing_tsne_metrics = [name for name in expected_tsne if name not in metrics.get("tsne", {})]
-        missing_umap_metrics = [name for name in expected_umap if name not in metrics.get("umap", {})]
-        if missing_tsne_embeddings or missing_umap_embeddings or missing_tsne_metrics or missing_umap_metrics:
-            raise ValueError(
-                "[!] Missing embeddings/metrics for variants. "
-                f"t-SNE embeddings: {missing_tsne_embeddings} | UMAP embeddings: {missing_umap_embeddings} | "
-                f"t-SNE metrics: {missing_tsne_metrics} | UMAP metrics: {missing_umap_metrics}. "
-                "Re-run evaluation.py and ensure variants match embedding outputs."
-            )
-        plot_tasic_variants(adata, metrics, args.outdir)
         plot_tasic_subsets_pca(adata, args.outdir)
-        plot_umap_small(adata, metrics, args.outdir)
-    else:
-        labels = adata.obs['cluster_label'].astype(str).values
-        colors = adata.obs['cluster_color'].astype(str).values if 'cluster_color' in adata.obs else [None] * len(labels)
-
-        for emb_name, title in [("tsne", f"t-SNE (Latent: {args.method.upper()}; Kobak variants)"), ("umap", f"UMAP (Latent: {args.method.upper()})")]:
-            variant_keys = sorted([key for key in adata.obsm_keys() if key.startswith(f"X_{emb_name}_")])
-            if not variant_keys:
-                continue
-            X = adata.obsm[variant_keys[0]]
-            variant_name = variant_keys[0].replace(f"X_{emb_name}_", "")
-            quality = metrics.get(emb_name, {}).get(variant_name, {})
-            plt.figure(figsize=(6, 6))
-            unique_labels = np.unique(labels)
-            color_map = {lbl: col for lbl, col in zip(labels, colors)}
-            for lbl in unique_labels:
-                idx = labels == lbl
-                plt.scatter(X[idx, 0], X[idx, 1], c=[color_map[lbl]], s=1, alpha=0.8, edgecolors="none")
-            plt.title(title, fontsize=14)
-            plt.xticks([])
-            plt.yticks([])
-            plt.gca().set_aspect("equal", adjustable="datalim")
-            plt.text(0.86, 0.05, metric_labels_text(), horizontalalignment="right", verticalalignment="bottom", transform=plt.gca().transAxes, fontsize=12, bbox=dict(facecolor="white", alpha=0.5, edgecolor="none"))
-            plt.text(0.95, 0.05, metric_text(quality), horizontalalignment="right", verticalalignment="bottom", transform=plt.gca().transAxes, fontsize=12, bbox=dict(facecolor="white", alpha=0.5, edgecolor="none"))
-            plt.tight_layout()
-            stem = os.path.join(args.outdir, f"fig_{args.method}_{emb_name}")
-            plt.savefig(f"{stem}.png", dpi=600, bbox_inches="tight")
-            plt.savefig(f"{stem}.pdf", dpi=600, bbox_inches="tight")
-            plt.close()
+        
+    plot_umap_small(adata, metrics, args.outdir, latent_key=required_latent_key)
 
     print(f"[*] Visualizations saved to {args.outdir}")
 

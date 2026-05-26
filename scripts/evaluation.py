@@ -3,6 +3,7 @@ import scanpy as sc
 import numpy as np
 import json
 import os
+import re
 from sklearn.neighbors import NearestNeighbors
 from scipy.stats import spearmanr
 from scipy.spatial.distance import pdist
@@ -48,10 +49,35 @@ def embedding_quality(X, Z, classes, knn=10, knn_classes=10, subsetsize=1000):
 
     return (mnn, mnn_global, rho)
 
+
+def resolve_high_dim_key(adata, method, dim=None):
+    if method == "pca" and "X_pca" in adata.obsm:
+        return "X_pca"
+
+    if dim is not None:
+        dim_key = f"X_latent_{method}_n{dim}"
+        if dim_key in adata.obsm:
+            return dim_key
+
+    exact_key = f"X_latent_{method}"
+    if exact_key in adata.obsm:
+        return exact_key
+
+    prefix = f"X_latent_{method}_n"
+    dim_keys = [key for key in adata.obsm_keys() if key.startswith(prefix)]
+    if dim_keys:
+        def dim_from_key(key):
+            match = re.search(r"_n(\d+)$", key)
+            return int(match.group(1)) if match else -1
+        return sorted(dim_keys, key=dim_from_key, reverse=True)[0]
+
+    return None
+
 def main():
     parser = argparse.ArgumentParser(description="Evaluate 2D Embeddings using KNN, KNC, CPD")
     parser.add_argument("--input", required=True, help="Path to .h5ad with 2D embeddings")
     parser.add_argument("--method", choices=["pca", "ae", "vae", "scvi"], required=True, help="Latent model evaluated")
+    parser.add_argument("--dim", type=int, default=None, help="Latent dimensionality to select the high-D key")
     parser.add_argument("--outdir", default="results/metrics/", help="Directory to save metric JSONs")
     parser.add_argument("--suffix", default="", help="Optional suffix to append to output filenames")
     args = parser.parse_args()
@@ -61,7 +87,14 @@ def main():
     adata = sc.read_h5ad(args.input)
     
     # Get High-D and Low-D (Using PCA 50 or Latent representation as High-D reference here)
-    X_high = adata.obsm[f"X_latent_{args.method}"]
+    high_dim_key = resolve_high_dim_key(adata, args.method, args.dim)
+    if high_dim_key is None:
+        raise KeyError(
+            f"No high-dimensional key found for method '{args.method}'. "
+            f"Expected 'X_pca' or 'X_latent_{args.method}[_n<dim>]' in adata.obsm."
+        )
+    print(f"[*] Using high-dimensional key: {high_dim_key}")
+    X_high = adata.obsm[high_dim_key]
     labels = adata.obs['cluster_id'].values if 'cluster_id' in adata.obs else (
              adata.obs['cluster_label'].values if 'cluster_label' in adata.obs else None)
 
